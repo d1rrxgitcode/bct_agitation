@@ -1,0 +1,138 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Статистика агитаций</title>
+<style>
+:root{--bg:#f7f9fc;--panel:#fff;--ink:#172033;--muted:#667085;--line:#d9e0ea;--acc:#2563eb;--warm:#dc2626;--good:#2563eb;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;padding:14px 24px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+h1{font-size:18px;margin:0}nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{border:0;background:none;color:var(--muted);padding:8px 12px;border-radius:6px;font:inherit;cursor:pointer}
+nav button.on{background:var(--acc);color:#fff}
+main{max-width:1280px;margin:0 auto;padding:24px 28px 60px}
+.grid{display:grid;gap:18px;grid-template-columns:repeat(12,minmax(0,1fr))}
+.kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:16px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px}
+.kpi b{display:block;font-size:30px;line-height:1.1}.kpi span{color:var(--muted);font-size:13px}
+h2{font-size:15px;margin:0 0 12px}.chart-box{grid-column:span 6;min-height:350px}.chart-wide,.chart-full{grid-column:1/-1}.chart-side{grid-column:span 6}.chart-box canvas{height:280px!important;max-height:none}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:16px}.filters{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:18px}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}.ag-form{display:grid;grid-template-columns:150px 150px minmax(180px,1fr) auto;align-items:end;gap:12px}.ag-form .participants{grid-column:1/-1;width:100%}.ag-form button{align-self:start;justify-self:start;height:36px}.participants{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px;margin:0;padding:12px;border:1px solid var(--line);border-radius:6px}.participants legend{padding:0 5px;color:var(--acc)}.participant{display:grid;grid-template-columns:auto 1fr 78px;align-items:center;gap:7px;color:var(--ink);font-size:14px}.participant input[type=number]{min-width:0;width:78px;padding:5px 7px}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:130px}
+button.go{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 16px;font:inherit;cursor:pointer}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--warm);outline-offset:1px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600}td.n,th.n{text-align:right}
+.x{border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px}.x:hover{color:var(--bad)}
+.tag{font-size:12px;padding:1px 7px;border-radius:9px;background:var(--bg);border:1px solid var(--line)}.dup{color:var(--warm)}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:6px;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}.scroll{overflow-x:auto}.pager{display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;color:var(--muted)}.pager button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:5px 10px;cursor:pointer}.pager button:disabled{opacity:.45;cursor:default}
+@media(max-width:800px){main{padding:16px}.ag-form{grid-template-columns:1fr 1fr}.ag-form .participants{grid-column:1/-1}.ag-form button{grid-column:1/-1}.participants{grid-template-columns:1fr 1fr}.chart-box,.chart-wide,.chart-full,.chart-side{grid-column:1/-1}.chart-box{min-height:330px}.chart-box canvas{height:260px!important}}
+</style></head><body>
+<header><h1>Статистика агитаций</h1><nav id="nav"></nav></header><main id="app"></main><div id="toast"></div>
+<script src="chart.umd.js"></script>
+<script>
+const TABS=[['dash','Дашборд'],['ag','Агитации'],['cad','Кадеты'],['form','Формирования'],['fig','Бойцы']];
+let D={},tab=location.hash.slice(1)||'dash',q='',charts=[],pageState={ag:1,cad:1,fig:1},dashFilter={from:'',to:'',type:'all'};
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const today=()=>new Date().toISOString().slice(0,10),ru=s=>s.split('-').reverse().join('.');
+const fName=id=>(D.formations.find(f=>f.id==id)||{}).name||'—',fig=id=>D.fighters.find(f=>f.id==id);
+const fLabel=f=>f?(f.tag?f.tag+' | ':'')+f.callsign:'—';
+const opts=(a,l,sel)=>a.map(x=>`<option value="${x.id}"${x.id==sel?' selected':''}>${esc(l(x))}</option>`).join('');
+const agitationGroups=(items=D.agitations)=>Object.values(items.reduce((groups,a)=>{const key=a.eventId??a.date+'|'+a.type;const g=groups[key]??=(groups[key]={date:a.date,type:a.type,items:[]});g.items.push(a);return groups},{})).sort((a,b)=>b.date.localeCompare(a.date));
+const groupTotal=g=>g.items.reduce((sum,a)=>sum+a.left,0);
+const groupLabel=g=>g.items.map(a=>`${esc(fName(a.formationId))} <span class="tag">${a.left}</span>`).join(' · ');
+const pageSize=50,pager=(key,total)=>{const pages=Math.max(1,Math.ceil(total/pageSize)),page=Math.min(pageState[key],pages);pageState[key]=page;return `<div class="pager"><button ${page===1?'disabled':''} onclick="setPage('${key}',${page-1})">Назад</button><span>Страница ${page} из ${pages} · ${total} записей</span><button ${page===pages?'disabled':''} onclick="setPage('${key}',${page+1})">Вперед</button></div>`};
+function setPage(key,page){pageState[key]=page;render()}
+function toast(m){const t=$('#toast');t.textContent=m;t.className='show';setTimeout(()=>t.className='',2500)}
+async function api(m,u,b){const r=await fetch('/api/'+u,{method:m,headers:{'Content-Type':'application/json'},body:b&&JSON.stringify(b)});const j=await r.json();if(!r.ok)throw new Error(j.error);return j}
+async function load(){D=await api('GET','');render()}
+async function add(coll,o,msg){try{await api('POST',coll,o);await load();toast(msg)}catch(e){toast(e.message)}}
+async function del(coll,id){if(!confirm('Удалить запись?'))return;await api('DELETE',coll+'/'+id);await load()}
+const mon=s=>{const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7);return d};
+const wk=d=>{const e=new Date(d);e.setUTCDate(e.getUTCDate()+6);const f=x=>x.toISOString().slice(8,10)+'.'+x.toISOString().slice(5,7);return f(d)+' – '+f(e)};
+function stats(){
+  const inRange=date=>(!dashFilter.from||date>=dashFilter.from)&&(!dashFilter.to||date<=dashFilter.to),filteredAgitations=D.agitations.filter(a=>inRange(a.date)&&(dashFilter.type==='all'||a.type===dashFilter.type)),cadets=D.cadets.filter(c=>inRange(c.date)),uniq=cadets.filter(c=>!c.duplicate),open=filteredAgitations.filter(a=>a.type=='open'),closed=filteredAgitations.filter(a=>a.type=='closed'),events=agitationGroups(filteredAgitations),openEvents=events.filter(g=>g.type=='open');
+  const sum=a=>a.reduce((s,x)=>s+x.left,0),values=openEvents.map(groupTotal),dates=openEvents.length,sorted=[...values].sort((a,b)=>a-b),median=sorted.length?sorted[Math.floor((sorted.length-1)/2)]:0;
+  const weeks={};const W=(s)=>{const k=mon(s).getTime();return weeks[k]??=(weeks[k]={d:mon(s),in:0,out:0})};
+  uniq.forEach(c=>W(c.date).in++);open.forEach(a=>W(a.date).out+=a.left);
+  const byF={};D.formations.forEach(f=>byF[f.id]={n:f.name,open:0,closed:0,rep:0});
+  open.forEach(a=>byF[a.formationId]&&(byF[a.formationId].open+=a.left));
+  closed.forEach(a=>byF[a.formationId]&&(byF[a.formationId].closed+=a.left));
+  const byR={};cadets.forEach(c=>{const r=fig(c.reporterId);if(!r)return;byR[r.id]=(byR[r.id]||0)+1;if(byF[r.formationId])byF[r.formationId].rep++});
+  return{uniq:uniq.length,dup:cadets.length-uniq.length,out:sum(open),closed:sum(closed),avg:dates?sum(open)/dates:0,median,max:sorted.length?sorted[sorted.length-1]:0,dates,events:events.length,
+    pct:uniq.length?sum(open)/uniq.length:0,weeks:Object.values(weeks).sort((a,b)=>a.d-b.d),byF:Object.values(byF),
+    top:Object.entries(byR).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([id,n])=>[fLabel(fig(id)),n])}
+}
+function chart(id,type,labels,sets,opt={}){const c=getComputedStyle(document.body);
+  Chart.defaults.color=c.getPropertyValue('--muted');Chart.defaults.borderColor=c.getPropertyValue('--line');
+  charts.push(new Chart($(id),{type,data:{labels,datasets:sets},options:{responsive:true,...opt}}))}
+function dash(){const s=stats(),acc=getComputedStyle(document.body).getPropertyValue('--acc'),warm=getComputedStyle(document.body).getPropertyValue('--warm'),good=getComputedStyle(document.body).getPropertyValue('--good');
+  $('#app').innerHTML=`<form id="filters" class="filters"><label>С даты<input type="date" name="from" value="${dashFilter.from}"></label><label>По дату<input type="date" name="to" value="${dashFilter.to}"></label><label>Тип агитации<select name="type"><option value="all"${dashFilter.type==='all'?' selected':''}>Все</option><option value="open"${dashFilter.type==='open'?' selected':''}>Открытые</option><option value="closed"${dashFilter.type==='closed'?' selected':''}>Закрытые</option></select></label><button class="go">Применить фильтр</button></form><div class="kpis">
+  <div class="box kpi"><b>${s.uniq}</b><span>Уникальных кадетов (дублей: ${s.dup})</span></div>
+  <div class="box kpi"><b>${s.out}</b><span>Ушло с общих агитаций (закрытые: ${s.closed})</span></div>
+  <div class="box kpi"><b>${s.avg.toFixed(1)}</b><span>Ушло в среднем за агитацию (${s.dates} агитаций)</span></div>
+  <div class="box kpi"><b>${(s.pct*100).toFixed(1)}%</b><span>Ушедших от числа кадетов</span></div></div>
+  <div class="kpis"><div class="box kpi"><b>${s.median}</b><span>Медиана ушедших за агитацию</span></div><div class="box kpi"><b>${s.max}</b><span>Максимум ушедших за агитацию</span></div><div class="box kpi"><b>${s.events}</b><span>Всего агитаций</span></div></div>
+  <div class="grid"><div class="box chart-box chart-wide"><h2>Прибыло и ушло по неделям</h2><canvas id="c1"></canvas></div>
+  <div class="box chart-box chart-side"><h2>Ушло по формированиям</h2><canvas id="c2"></canvas></div>
+  <div class="box chart-box"><h2>Рапорты по формированиям рапортующих</h2><canvas id="c3"></canvas></div>
+  <div class="box chart-box chart-full"><h2>Топ рапортующих</h2><canvas id="c4"></canvas></div></div>
+  <div class="box scroll" style="margin-top:16px"><h2>Соотношение по неделям</h2><table><tr><th>Неделя<th class="n">Прибыло<th class="n">Ушло<th class="n">%</tr>
+  ${s.weeks.map(w=>`<tr><td>${wk(w.d)}<td class="n">${w.in}<td class="n">${w.out}<td class="n">${w.in?(w.out/w.in*100).toFixed(1)+'%':'—'}</tr>`).join('')}</table></div>`;
+  chart('#c1','bar',s.weeks.map(w=>wk(w.d)),[{label:'Прибыло',data:s.weeks.map(w=>w.in),backgroundColor:acc},{label:'Ушло',data:s.weeks.map(w=>w.out),backgroundColor:warm}]);
+  chart('#c2','bar',s.byF.map(f=>f.n),[{label:'Открытые',data:s.byF.map(f=>f.open),backgroundColor:acc},{label:'Закрытые',data:s.byF.map(f=>f.closed),backgroundColor:warm}],{scales:{x:{stacked:true},y:{stacked:true}},plugins:{legend:{position:'bottom'}}});
+  chart('#c3','bar',s.byF.map(f=>f.n),[{label:'Рапортов',data:s.byF.map(f=>f.rep),backgroundColor:acc}],{plugins:{legend:{display:false}}});
+  chart('#c4','bar',s.top.map(t=>t[0]),[{label:'Кадетов',data:s.top.map(t=>t[1]),backgroundColor:acc}],{indexAxis:'y',plugins:{legend:{display:false}}});
+  $('#filters').onsubmit=e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));if(v.from&&v.to&&v.from>v.to)return toast('Начало периода не может быть позже конца');dashFilter=v;render()}}
+const tbl=(h,rows)=>`<div class="box scroll"><table><tr>${h.map(x=>`<th>${x}`).join('')}<th></tr>${rows||`<tr><td colspan="9" style="color:var(--muted)">Пока пусто — добавьте первую запись выше.</td></tr>`}</table></div>`;
+const xb=(c,id)=>`<td class="n"><button class="x" title="Редактировать" onclick="edit('${c}',${id})">✎</button><button class="x" title="Удалить" onclick="del('${c}',${id})">✕</button>`;
+async function edit(collection,id){
+  const item=D[collection].find(x=>x.id===id);if(!item)return;
+  let value;
+  if(collection==='formations'){value=prompt('Название формирования',item.name);if(value===null)return;value={name:value.trim()}}
+  if(collection==='fighters'){const tag=prompt('IDN или тег',item.tag);if(tag===null)return;const callsign=prompt('Позывной',item.callsign);if(callsign===null)return;value={tag:tag.trim(),callsign:callsign.trim(),formationId:item.formationId}}
+  if(collection==='cadets'){const idn=prompt('IDN',item.idn);if(idn===null)return;const callsign=prompt('Позывной',item.callsign);if(callsign===null)return;value={idn:idn.trim(),callsign:callsign.trim(),date:item.date,reporterId:item.reporterId,duplicate:item.duplicate}}
+  if(collection==='agitations'){const left=prompt('Ушло из формирования',item.left);if(left===null)return;value={date:item.date,type:item.type,formationId:item.formationId,left:Number(left),eventId:item.eventId}}
+  try{await api('PUT',collection+'/'+id,value);await load();toast('Изменения сохранены')}catch(error){toast(error.message)}
+}
+function ag(){
+  const participants=D.formations.map(f=>`<label class="participant"><input type="checkbox" name="formationId" value="${f.id}"><span>${esc(f.name)}</span><input type="number" name="left-${f.id}" min="0" value="0" aria-label="Ушло из формирования ${esc(f.name)}"></label>`).join('');
+  $('#app').innerHTML=`<form id="f" class="ag-form"><label>Тип<select name="type"><option value="open">Открытая</option><option value="closed">Закрытая</option></select></label>
+  <label>Дата<input type="date" name="date" value="${today()}" required></label><fieldset class="participants"><legend>Участвующие формирования</legend>${participants}</fieldset><button class="go">Добавить агитацию</button></form>`+
+  `<form><label>Поиск агитаций<input id="aq" value="${esc(q)}" placeholder="Дата, тип, формирование"></label></form><div id="ag-list"></div>`;
+  const list=()=>{const s=q.toLowerCase(),rows=agitationGroups().filter(g=>!s||(g.date+' '+g.type+' '+g.items.map(a=>fName(a.formationId)).join(' ')).toLowerCase().includes(s)),start=(pageState.ag-1)*pageSize;$('#ag-list').innerHTML=tbl(['Дата','Тип','Формирования','Всего ушло'],rows.slice(start,start+pageSize).map(g=>`<tr><td>${ru(g.date)}<td>${g.type=='open'?'Открытая':'Закрытая'}<td>${groupLabel(g)}<td class="n">${groupTotal(g)} ${g.items.map(a=>xb('agitations',a.id)).join('')}</tr>`).join(''))+pager('ag',rows.length)};
+  list();$('#aq').oninput=e=>{q=e.target.value;list()};
+  $('#f').onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target)),selected=[...e.target.querySelectorAll('input[name="formationId"]:checked')],group=agitationGroups().find(g=>g.date===v.date&&g.type===v.type),existing=new Set(group?.items.map(a=>a.formationId)||[]),items=selected.filter(input=>!existing.has(+input.value)).map(input=>({date:v.date,type:v.type,formationId:+input.value,left:+v['left-'+input.value]}));
+    if(!items.length)return toast(selected.length?'Эти формирования уже добавлены в агитацию':'Выберите хотя бы одно формирование');
+    try{for(const item of items)await api('POST','agitations',item);await load();toast('Агитация добавлена')}catch(error){toast(error.message)}}}
+function cad(){
+  $('#app').innerHTML=`<form id="f"><label>IDN<input name="idn" placeholder="1467" required></label><label>Позывной<input name="callsign" required></label>
+  <label>Рапортующий<input name="rep" list="figs" placeholder="9753 | Shiza" required></label><label>Дата<input type="date" name="date" value="${today()}" required></label>
+  <button class="go">Добавить кадета</button></form><datalist id="figs">${D.fighters.map(f=>`<option value="${esc(fLabel(f))}">`).join('')}</datalist>
+  <form><label>Поиск<input id="q" value="${esc(q)}" placeholder="IDN, позывной, рапортующий"></label></form><div id="list"></div>`;
+  const list=()=>{const s=q.toLowerCase(),rows=D.cadets.filter(c=>!s||(c.idn+c.callsign+fLabel(fig(c.reporterId))).toLowerCase().includes(s)).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id),start=(pageState.cad-1)*pageSize;$('#list').innerHTML=tbl(['IDN','Позывной','Рапортующий','Дата'],rows.slice(start,start+pageSize)
+    .map(c=>`<tr><td>${esc(c.idn)}<td>${esc(c.callsign)} ${c.duplicate?'<span class="tag dup">дубль</span>':''}<td>${esc(fLabel(fig(c.reporterId)))}<td>${ru(c.date)}${xb('cadets',c.id)}</tr>`).join(''))+pager('cad',rows.length)};
+  list();$('#q').oninput=e=>{q=e.target.value;list()};
+  $('#f').onsubmit=e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target)),r=D.fighters.find(f=>fLabel(f).toLowerCase()==v.rep.trim().toLowerCase());
+    if(!r)return toast('Рапортующего нет в списке — добавьте его во вкладке «Бойцы»');
+    const dup=D.cadets.some(c=>c.idn==v.idn.trim()||c.callsign.toLowerCase()==v.callsign.trim().toLowerCase());
+    if(dup&&!confirm('Такой кадет уже есть. Добавить как дубль?'))return;
+    add('cadets',{idn:v.idn.trim(),callsign:v.callsign.trim(),reporterId:r.id,date:v.date,duplicate:dup},'Кадет добавлен')}}
+function form(){
+  $('#app').innerHTML=`<form id="f"><label>Название<input name="name" required></label><button class="go">Добавить формирование</button></form>`+
+  tbl(['Название','Бойцов','Ушло всего'],D.formations.map(f=>`<tr><td>${esc(f.name)}<td>${D.fighters.filter(x=>x.formationId==f.id).length}<td>${D.agitations.filter(a=>a.formationId==f.id).reduce((s,a)=>s+a.left,0)}${xb('formations',f.id)}</tr>`).join(''));
+  $('#f').onsubmit=e=>{e.preventDefault();const n=new FormData(e.target).get('name').trim();
+    if(D.formations.some(f=>f.name.toLowerCase()==n.toLowerCase()))return toast('Такое формирование уже есть');add('formations',{name:n},'Формирование добавлено')}}
+function fig_(){
+  $('#app').innerHTML=`<form id="f"><label>IDN или тег формирования<input name="tag" placeholder="9753 или 327th"></label><label>Позывной<input name="callsign" required></label>
+  <label>Формирование<select name="formationId">${opts(D.formations,f=>f.name)}</select></label><button class="go">Добавить бойца</button></form>`+
+  `<form><label>Поиск бойцов<input id="fq" value="${esc(q)}" placeholder="IDN, позывной, формирование"></label></form><div id="fig-list"></div>`;
+  const list=()=>{const s=q.toLowerCase(),rows=D.fighters.filter(f=>!s||(`${f.tag} ${f.callsign} ${fName(f.formationId)}`).toLowerCase().includes(s)),start=(pageState.fig-1)*pageSize;$('#fig-list').innerHTML=tbl(['IDN / тег','Позывной','Формирование'],rows.slice(start,start+pageSize).map(f=>`<tr><td>${esc(f.tag)}<td>${esc(f.callsign)}<td>${esc(fName(f.formationId))}${xb('fighters',f.id)}</tr>`).join(''))+pager('fig',rows.length)};
+  list();$('#fq').oninput=e=>{q=e.target.value;list()};
+  $('#f').onsubmit=e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));add('fighters',{tag:v.tag.trim(),callsign:v.callsign.trim(),formationId:+v.formationId},'Боец добавлен')}}
+const _del=del;del=async(c,id)=>{const n=(k,f)=>D[k].filter(f).length;
+  if(c=='formations'&&(n('fighters',x=>x.formationId==id)||n('agitations',x=>x.formationId==id)))return toast('Нельзя удалить: у формирования есть бойцы или агитации');
+  if(c=='fighters'&&n('cadets',x=>x.reporterId==id))return toast('Нельзя удалить: боец указан рапортующим у кадетов');return _del(c,id)};
+function render(){charts.forEach(c=>c.destroy());charts=[];
+  $('#nav').innerHTML=TABS.map(([k,l])=>`<button class="${k==tab?'on':''}" onclick="location.hash='${k}'">${l}</button>`).join('');
+  ({dash,ag,cad,form,fig:fig_})[tab]()}
+addEventListener('hashchange',()=>{tab=location.hash.slice(1)||'dash';render()});load();
+</script></body></html>
