@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход — Учётная система</title>
+<link rel="stylesheet" href="/css/style.css">
+<script>
+  (function() { document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light'); })();
+</script>
+</head>
+<body>
+  <div class="login-shell">
+    <div class="card login-card">
+      <img src="/img/emblem.png" alt="91" class="login-emblem">
+      <h1>91-й разведывательный корпус</h1>
+      <p class="sub">Вход в учётную систему личного состава</p>
+      <div class="field">
+        <label>Логин</label>
+        <input type="text" id="username" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input type="password" id="password" autocomplete="current-password">
+      </div>
+      <div class="error-msg" id="error" style="display:none"></div>
+      <button class="btn-primary" id="login-btn" style="width:100%">Войти</button>
+    </div>
+  </div>
+  <script src="/js/common.js"></script>
+  <script>
+    async function doLogin() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errEl = document.getElementById('error');
+      errEl.style.display = 'none';
+      try {
+        await api('/auth/login', { method: 'POST', body: { username, password } });
+        window.location.href = '/index.html';
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.style.display = 'block';
+      }
+    }
+    document.getElementById('login-btn').addEventListener('click', doLogin);
+    document.getElementById('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  </script>
+</body>
+</html>
