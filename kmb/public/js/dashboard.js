@@ -12,12 +12,11 @@
         <h1>Дашборд</h1>
         <div class="sub">Статистика и графики активности ${escapeHtml(FORMATION_NAME)}</div>
       </div>
-      <button class="btn-primary" id="add-activity-btn">+ Записать активность</button>
     </div>
     <div class="grid grid-4" id="stat-cards"></div>
     <div class="grid grid-2" style="margin-top:20px">
       <div class="card">
-        <strong>Активности по типам</strong>
+        <strong>Активности по категориям</strong>
         <div id="chart-bars" class="chart-wrap"></div>
       </div>
       <div class="card">
@@ -32,24 +31,28 @@
     <div class="card" style="margin-top:20px">
       <div class="toolbar">
         <strong style="margin-right:auto">Журнал активностей</strong>
-        <select id="filter-type">
-          <option value="">Все типы</option>
-          ${ACTIVITY_TYPES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
-        </select>
+        <select id="filter-type"><option value="">Все категории</option></select>
+        <a class="btn-sm" href="/activity.html">Страницы активности</a>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Дата</th><th>Тип</th><th>Название</th><th>Автор</th><th>Заметки</th><th></th></tr></thead>
+          <thead><tr><th>Дата</th><th>Категория</th><th>Название</th><th>Участники</th><th>Проводящий</th><th>Заметки</th><th></th></tr></thead>
           <tbody id="activity-rows"></tbody>
         </table>
       </div>
+      <div id="journal-pager"></div>
     </div>
   `;
 
-  const TYPE_LABELS = Object.fromEntries(ACTIVITY_TYPES.map(t => [t.id, t.label]));
-  const TYPE_COLORS = { agitation: '#52525b', training: '#71717a', recon: '#3f3f46', combat: '#18181b' };
+  const journal = { page: 1, pages: 1 };
+  const PER_PAGE = 10;
+  let journalItems = [];
 
   function barChart(el, items) {
+    if (!items.length) {
+      el.innerHTML = '<div class="hint">Категорий пока нет — создайте их на странице «Активность»</div>';
+      return;
+    }
     const max = Math.max(1, ...items.map(i => i.value));
     el.innerHTML = `<div class="bar-chart">${items.map(i => `
       <div class="bar-col">
@@ -98,26 +101,19 @@
   }
 
   async function loadStats() {
+    const types = await loadActivityTypes();
     const [summary, series] = await Promise.all([
       api('/activities/summary/counts'),
       api('/activities/summary/series?days=30'),
     ]);
-    const cards = [
-      { label: 'Агитации проведено', num: summary.activities.agitation.count },
-      { label: 'Тренировок проведено', num: summary.activities.training.count },
-      { label: 'Разведок проведено', num: summary.activities.recon.count },
-      { label: 'Боевых действий', num: summary.activities.combat.count },
-    ];
-    document.getElementById('stat-cards').innerHTML = cards.map(c => `
-      <div class="card stat-card"><div class="num">${c.num}</div><div class="label">${c.label}</div></div>
-    `).join('');
+    const rows = summary.activities || [];
+    document.getElementById('stat-cards').innerHTML = rows.map((r, i) => `
+      <div class="card stat-card"><div class="num">${r.count}</div><div class="label">${escapeHtml(r.name)}</div></div>
+    `).join('') || '<div class="card hint">Категорий пока нет</div>';
 
-    barChart(document.getElementById('chart-bars'), [
-      { label: 'Агитации', value: summary.activities.agitation.count, color: TYPE_COLORS.agitation },
-      { label: 'Тренировки', value: summary.activities.training.count, color: TYPE_COLORS.training },
-      { label: 'Разведки', value: summary.activities.recon.count, color: TYPE_COLORS.recon },
-      { label: 'Бои', value: summary.activities.combat.count, color: TYPE_COLORS.combat },
-    ]);
+    barChart(document.getElementById('chart-bars'), rows.map((r, i) => ({
+      label: r.name, value: r.count, color: typeColor(i),
+    })));
     hBarChart(document.getElementById('chart-units'), (summary.by_unit || []).map(u => ({ label: u.name, value: u.count })));
 
     const dateSet = [];
@@ -132,33 +128,52 @@
     }
     const map = {};
     (series.points || []).forEach(p => {
-      map[`${p.date}|${p.type}`] = p.count;
+      map[`${p.date}|${p.type_id}`] = p.count;
     });
+    const seriesTypes = (series.types && series.types.length ? series.types : types);
     lineChart(document.getElementById('chart-line'), {
       dates: dateSet,
-      lines: ACTIVITY_TYPES.map(t => ({
-        label: t.label,
-        color: TYPE_COLORS[t.id],
+      lines: seriesTypes.map((t, i) => ({
+        label: t.name,
+        color: typeColor(i),
         points: dateSet.map(d => map[`${d}|${t.id}`] || 0),
       })),
     });
+
+    const filterSel = document.getElementById('filter-type');
+    const cur = filterSel.value;
+    filterSel.innerHTML = '<option value="">Все категории</option>' +
+      types.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    filterSel.value = cur;
   }
 
   async function loadRows() {
     const type = document.getElementById('filter-type').value;
-    const rows = await api(`/activities${type ? '?type=' + type : ''}`);
-    document.getElementById('activity-rows').innerHTML = rows.map(r => {
+    const res = await api(`/activities?${type ? 'type_id=' + type + '&' : ''}page=${journal.page}&limit=${PER_PAGE}`);
+    journal.page = res.page; journal.pages = res.pages;
+    journalItems = res.items;
+    document.getElementById('activity-rows').innerHTML = res.items.map(r => {
       const canDel = canEdit || String(r.conducted_by) === String(user.id);
       return `
       <tr>
         <td>${fmtDate(r.activity_date)}</td>
-        <td>${TYPE_LABELS[r.type] || r.type}</td>
-        <td>${escapeHtml(r.title)}</td>
-        <td>${escapeHtml(r.personnel_callsign || r.conducted_by_name || '—')}</td>
+        <td>${escapeHtml(typeLabel(r.type_id))}</td>
+        <td>${escapeHtml(r.title)}${(r.images || []).length ? ` <span class="badge">${r.images.length} фото</span>` : ''}</td>
+        <td style="white-space:normal">${(r.participants || []).map(p => escapeHtml(p.callsign)).join(', ') || '—'}</td>
+        <td>${escapeHtml(r.conductor_name || r.conducted_by_name || '—')}</td>
         <td style="white-space:normal">${escapeHtml(r.notes || '')}</td>
-        <td>${canDel ? `<button class="btn-sm btn-danger" data-del="${r.id}">Удалить</button>` : ''}</td>
+        <td style="white-space:nowrap">${canDel ? `<button class="btn-sm" data-edit="${r.id}">Изменить</button> <button class="btn-sm btn-danger" data-del="${r.id}">Удалить</button>` : ''}</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="6" style="color:var(--text-muted)">Записей нет</td></tr>`;
+    }).join('') || `<tr><td colspan="7" style="color:var(--text-muted)">Записей нет</td></tr>`;
+    const pagerEl = document.getElementById('journal-pager');
+    pagerEl.innerHTML = pagerHtml(journal.page, journal.pages);
+    bindPager(pagerEl, journal, loadRows);
+    document.querySelectorAll('#activity-rows [data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const a = journalItems.find(x => x.id === Number(btn.dataset.edit));
+        if (a) openActivityModal({ activity: a, onSaved: () => { loadRows(); loadStats(); } });
+      });
+    });
     document.querySelectorAll('#activity-rows [data-del]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Удалить запись?')) return;
@@ -168,10 +183,8 @@
     });
   }
 
-  document.getElementById('filter-type').addEventListener('change', loadRows);
-  document.getElementById('add-activity-btn').addEventListener('click', () => {
-    openActivityModal({ onSaved: () => { loadRows(); loadStats(); } });
-  });
+  document.getElementById('filter-type').addEventListener('change', () => { journal.page = 1; loadRows(); });
+  window.addEventListener('themechange', () => loadStats());
 
   loadStats(); loadRows();
 })();

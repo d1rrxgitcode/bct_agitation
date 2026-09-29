@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { requireAuth, requireRole, EDIT_ROSTER_ROLES, isRosterEditor, isOwnPersonnel } = require('../middleware/auth');
+const { requireAuth, requireRole, EDIT_ROSTER_ROLES, isRosterEditor } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -23,10 +23,6 @@ const BASE_SELECT = `
   LEFT JOIN positions pos ON pos.id = p.position_id
   LEFT JOIN units u ON u.id = p.unit_id
 `;
-
-function canFillOwnData(req, personnelId) {
-  return isRosterEditor(req.session.user) || isOwnPersonnel(req.session.user, personnelId);
-}
 
 async function loadPerson(id) {
   const { rows } = await db.query(`${BASE_SELECT} WHERE p.id=$1`, [id]);
@@ -163,20 +159,6 @@ router.put('/:id', requireRole(...EDIT_ROSTER_ROLES), async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
-});
-
-router.patch('/:id/activity', requireAuth, async (req, res) => {
-  const id = req.params.id;
-  if (!canFillOwnData(req, id)) {
-    return res.status(403).json({ error: 'Можно заполнять только свою активность' });
-  }
-  const exists = await db.query('SELECT id FROM personnel WHERE id=$1', [id]);
-  if (!exists.rows[0]) return res.status(404).json({ error: 'Не найдено' });
-  const { rows } = await db.query(
-    `UPDATE personnel SET activity=$1, updated_at=now() WHERE id=$2 RETURNING *`,
-    [req.body.activity || null, id]
-  );
-  res.json(rows[0]);
 });
 
 router.post('/:id/rank-history', requireRole(...EDIT_ROSTER_ROLES), async (req, res) => {

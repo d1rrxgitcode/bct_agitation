@@ -97,18 +97,41 @@ CREATE TABLE IF NOT EXISTS documents (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Журнал активностей для дашборда
+-- Гибкие категории деятельности (заменяют жёсткий список типов активности)
+CREATE TABLE IF NOT EXISTS activity_types (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  sort_order  INT NOT NULL DEFAULT 0
+);
+
+-- Журнал активностей для дашборда и личных дел
 CREATE TABLE IF NOT EXISTS activities (
   id            SERIAL PRIMARY KEY,
-  type          TEXT NOT NULL CHECK (type IN ('agitation','training','recon','combat')),
+  type_id       INT REFERENCES activity_types(id) ON DELETE SET NULL,
   title         TEXT NOT NULL,
   activity_date DATE NOT NULL DEFAULT CURRENT_DATE,
   conducted_by  INT REFERENCES users(id) ON DELETE SET NULL,
-  personnel_id  INT REFERENCES personnel(id) ON DELETE SET NULL,
+  conductor_id  INT REFERENCES personnel(id) ON DELETE SET NULL,
   notes         TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Кто участвовал в активности (многие ко многим)
+CREATE TABLE IF NOT EXISTS activity_participants (
+  activity_id   INT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+  personnel_id  INT NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+  PRIMARY KEY (activity_id, personnel_id)
+);
+
+-- Фотографии к записи активности (файлы лежат в public/uploads)
+CREATE TABLE IF NOT EXISTS activity_images (
+  id          SERIAL PRIMARY KEY,
+  activity_id INT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+  path        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_personnel_idn ON personnel(idn);
 CREATE INDEX IF NOT EXISTS idx_personnel_unit ON personnel(unit_id);
-CREATE INDEX IF NOT EXISTS idx_activities_type_date ON activities(type, activity_date);
+CREATE INDEX IF NOT EXISTS idx_activity_participants_personnel ON activity_participants(personnel_id);
+CREATE INDEX IF NOT EXISTS idx_activity_images_activity ON activity_images(activity_id);

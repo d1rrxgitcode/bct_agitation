@@ -31,12 +31,18 @@ function crudFor(table) {
 
   r.put('/:id', requireRole(...EDIT_ROSTER_ROLES), async (req, res) => {
     const { name, sort_order } = req.body;
-    const { rows } = await db.query(
-      `UPDATE ${table} SET name=COALESCE($1,name), sort_order=COALESCE($2,sort_order) WHERE id=$3 RETURNING *`,
-      [name, sort_order, req.params.id]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'Не найдено' });
-    res.json(rows[0]);
+    try {
+      const { rows } = await db.query(
+        `UPDATE ${table} SET name=COALESCE($1,name), sort_order=COALESCE($2,sort_order) WHERE id=$3 RETURNING *`,
+        [name, sort_order, req.params.id]
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'Не найдено' });
+      res.json(rows[0]);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: 'Такое значение уже существует' });
+      console.error(err);
+      res.status(500).json({ error: 'Ошибка сервера' });
+    }
   });
 
   r.delete('/:id', requireRole(...EDIT_ROSTER_ROLES), async (req, res) => {
@@ -50,5 +56,6 @@ function crudFor(table) {
 router.use('/ranks', crudFor('ranks'));
 router.use('/positions', crudFor('positions'));
 router.use('/units', crudFor('units'));
+router.use('/activity-types', crudFor('activity_types'));
 
 module.exports = router;

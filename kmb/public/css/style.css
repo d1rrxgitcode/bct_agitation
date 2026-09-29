@@ -63,16 +63,8 @@ a { color: inherit; }
   align-items: flex-start;
   gap: 8px;
 }
-.brand-emblem {
-  width: 52px;
-  height: 52px;
-  object-fit: contain;
-}
-:root:not([data-theme="dark"]) .brand-emblem,
-:root:not([data-theme="dark"]) .login-emblem {
-  filter: invert(1);
-  mix-blend-mode: multiply;
-}
+/* Эмблема — серый PNG на прозрачном фоне; в тёмной теме осветляем, чтобы не сливалась с фоном */
+:root[data-theme="dark"] .login-emblem { filter: invert(0.82); }
 .sidebar .brand small { display: block; color: var(--text-muted); font-weight: 400; font-size: 11px; margin-top: 2px; }
 
 .nav-link {
@@ -183,6 +175,7 @@ tbody tr:hover { background: var(--bg-inset); }
   box-shadow: 0 10px 40px rgba(0,0,0,0.2);
 }
 .modal.wide { width: 860px; }
+.modal.doc-modal { width: 1020px; max-width: 94vw; max-height: 92vh; }
 .modal h2 { margin-top: 0; font-size: 17px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
@@ -214,7 +207,7 @@ tbody tr:hover { background: var(--bg-inset); }
 
 .dossier-doc {
   background: #fff; color: #111; border: 1px solid var(--border); border-radius: 4px;
-  padding: 48px 52px 88px; max-width: 720px; margin: 0 auto; font-family: Georgia, 'Times New Roman', serif;
+  padding: 48px 52px 40px; max-width: 720px; margin: 0 auto; font-family: Georgia, 'Times New Roman', serif;
   position: relative;
 }
 .dossier-doc h1 { text-align: center; font-size: 19px; letter-spacing: 0.03em; margin-bottom: 4px; }
@@ -226,26 +219,105 @@ tbody tr:hover { background: var(--bg-inset); }
 .dossier-doc .section-title { font-weight: 700; font-size: 13.5px; margin-bottom: 10px; }
 .dossier-doc .history-item { font-size: 13.5px; margin: 3px 0; }
 .dossier-emblem {
-  position: absolute;
-  right: 28px;
-  bottom: 22px;
-  width: 92px;
+  display: block;
+  margin: 34px 0 0 auto;
+  width: 110px;
   height: auto;
   pointer-events: none;
-  filter: invert(1);
-  mix-blend-mode: multiply;
+  opacity: 0.92;
 }
-.rank-history-editor {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px dashed #ccc;
-  font-family: inherit;
-}
-.rank-history-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0 12px; }
+.rank-history-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0 4px; }
 .rank-history-form select, .rank-history-form input[type=date] { width: auto; min-width: 140px; }
 .rank-history-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 4px 0; font-size: 13px; }
-.inline-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #555; }
+.inline-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); margin: 0; }
 .inline-check input { width: auto; }
+.modal-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.modal-section .section-title { font-weight: 600; font-size: 13.5px; margin-bottom: 6px; }
+
+.dossier-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 2px 0; }
+.dossier-table td { padding: 3px 0; border-bottom: 1px dotted #ccc; text-align: left; white-space: normal; }
+.dossier-table tr:last-child td { border-bottom: none; }
+.dossier-table .dossier-date { width: 110px; color: #444; }
+
+.participants-box {
+  max-height: 170px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-inset); padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.participant-check { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--text); cursor: pointer; }
+.participant-check input { width: auto; }
+
+/* Категории деятельности: модалка-справочник */
+.types-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.type-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-inset);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.type-row:hover { border-color: var(--text-muted); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.type-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.type-row .rename-input {
+  flex: 1; border: 1px solid transparent; background: transparent;
+  padding: 5px 6px; border-radius: 6px; font-size: 13.5px; color: var(--text);
+}
+.type-row .rename-input:hover { border-color: var(--border); background: var(--bg); }
+.type-row .rename-input:focus { border-color: var(--accent); background: var(--bg); outline: none; }
+.type-actions { display: flex; gap: 6px; flex: none; }
+.types-add { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.types-add input { flex: 1; }
+.type-select-row { display: flex; gap: 6px; }
+.type-select-row select { flex: 1; }
+.type-inline-add { display: flex; gap: 6px; margin-top: 6px; }
+.type-inline-add[hidden] { display: none; }
+.type-inline-add input { flex: 1; }
+
+/* Личное дело: многостраничный документ */
+.dossier-pages-nav {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  max-width: 720px; margin: 14px auto 0;
+}
+.dossier-pages-nav .pager-info { font-size: 13px; }
+.dossier-page-num { text-align: center; margin-top: 28px; font-size: 12px; color: #666; letter-spacing: .25em; }
+.dossier-act { padding: 10px 0; border-bottom: 1px dotted #ccc; }
+.dossier-act:last-of-type { border-bottom: none; }
+.dossier-act-head { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: #444; }
+.dossier-act-title { font-weight: 700; font-size: 14px; margin: 4px 0 2px; }
+.dossier-act-meta { font-size: 12.5px; color: #444; margin: 2px 0; }
+.dossier-act-notes { font-size: 13px; margin-top: 4px; white-space: pre-wrap; }
+.dossier-act-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.dossier-act-images img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; }
+
+.activity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-top: 4px; }
+.activity-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-inset); padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.activity-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.activity-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.activity-title { font-weight: 600; font-size: 14px; }
+.activity-notes { font-size: 13px; color: var(--text-muted); white-space: pre-wrap; }
+.activity-participants { display: flex; flex-wrap: wrap; gap: 4px; }
+.activity-images { display: flex; flex-wrap: wrap; gap: 6px; }
+.img-thumb {
+  width: 72px; height: 72px; object-fit: cover; border-radius: 6px;
+  border: 1px solid var(--border); cursor: zoom-in; background: var(--bg-elevated);
+}
+.img-preview-wrap { position: relative; display: inline-block; }
+.img-preview-wrap .img-remove { position: absolute; top: 2px; right: 2px; padding: 2px 6px; }
+.activity-card-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }
+
+.pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; }
+.pager-info { font-size: 12.5px; color: var(--text-muted); }
+
+a.btn-sm {
+  display: inline-block; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-elevated); color: var(--text); text-decoration: none;
+  padding: 5px 10px; font-size: 12.5px;
+}
+a.btn-sm:hover { background: var(--bg-inset); }
 
 .chart-wrap { margin-top: 14px; min-height: 180px; }
 .bar-chart { display: flex; align-items: flex-end; gap: 18px; height: 180px; }
@@ -281,6 +353,30 @@ tbody tr:hover { background: var(--bg-inset); }
 .doc-list-item:hover { background: var(--bg-inset); }
 .doc-list-item .meta { font-size: 11.5px; color: var(--text-muted); }
 
-.doc-content { white-space: pre-wrap; line-height: 1.6; font-size: 14px; }
+.doc-content { line-height: 1.6; font-size: 14px; }
+.doc-content h1 { font-size: 19px; margin: 14px 0 8px; }
+.doc-content h2 { font-size: 16.5px; margin: 12px 0 6px; }
+.doc-content h3 { font-size: 14.5px; margin: 10px 0 6px; }
+.doc-content p { margin: 8px 0; }
+.doc-content ul, .doc-content ol { margin: 8px 0; padding-left: 24px; }
+.doc-content li { margin: 3px 0; }
+.doc-content blockquote {
+  margin: 10px 0; padding: 6px 14px; border-left: 3px solid var(--border);
+  background: var(--bg-inset); color: var(--text-muted); border-radius: 0 6px 6px 0;
+}
+.doc-content hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+.doc-view { max-height: 62vh; overflow-y: auto; padding-right: 6px; }
+.doc-toolbar {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  padding: 6px; background: var(--bg-inset);
+  border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0;
+}
+.doc-toolbar button {
+  min-width: 30px; padding: 4px 9px; font-size: 12.5px; color: var(--text);
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+}
+.doc-toolbar button:hover { border-color: var(--text-muted); }
+.doc-toolbar-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
+textarea.doc-editor { min-height: 46vh; resize: vertical; border-radius: 0 0 8px 8px; line-height: 1.5; }
 
 .role-pill { font-size: 11px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-inset); }

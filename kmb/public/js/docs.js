@@ -9,7 +9,6 @@
     <div class="topbar">
       <div><h1>Документация</h1><div class="sub">Категории и материалы формирования</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button id="log-activity-btn">Записать активность</button>
         ${canEdit ? '<button class="btn-primary" id="add-cat-btn">+ Новая категория</button>' : ''}
       </div>
     </div>
@@ -89,12 +88,12 @@
     const doc = await api(`/docs/documents/${docId}`);
     openModal(`
       <h2>${escapeHtml(doc.title)}</h2>
-      <div class="doc-content">${escapeHtml(doc.content)}</div>
+      <div class="doc-content doc-view">${renderDocContent(doc.content)}</div>
       <div class="modal-actions">
         ${canEdit ? `<button class="btn-danger" id="del-doc-btn">Удалить</button><button id="edit-doc-btn">Редактировать</button>` : ''}
         <button onclick="closeModal()">Закрыть</button>
       </div>
-    `);
+    `, { wide: true, modalClass: 'doc-modal' });
     if (canEdit) {
       document.getElementById('del-doc-btn').addEventListener('click', async () => {
         if (!confirm('Удалить документ?')) return;
@@ -109,10 +108,29 @@
     openModal(`
       <h2>${doc ? 'Редактирование документа' : 'Новый документ'}</h2>
       <div class="field"><label>Заголовок</label><input id="d-title" value="${escapeHtml(doc?.title || '')}"></div>
-      <div class="field"><label>Содержание</label><textarea id="d-content" rows="10">${escapeHtml(doc?.content || '')}</textarea></div>
+      <div class="field" style="margin-bottom:0"><label>Содержание</label>
+        <div class="doc-toolbar" id="d-toolbar">
+          <button type="button" data-md="h1" title="Заголовок раздела">H1</button>
+          <button type="button" data-md="h2" title="Подзаголовок">H2</button>
+          <button type="button" data-md="h3" title="Пункт">H3</button>
+          <span class="doc-toolbar-sep"></span>
+          <button type="button" data-md="bold" title="Жирный (**текст**)"><b>Ж</b></button>
+          <button type="button" data-md="italic" title="Курсив (*текст*)"><i>К</i></button>
+          <button type="button" data-md="underline" title="Подчёркнутый (__текст__)"><u>Ч</u></button>
+          <span class="doc-toolbar-sep"></span>
+          <button type="button" data-md="ul" title="Маркированный список (- пункт)">• Список</button>
+          <button type="button" data-md="ol" title="Нумерованный список (1. пункт)">1. Список</button>
+          <button type="button" data-md="quote" title="Цитата (> текст)">❝ Цитата</button>
+          <span class="doc-toolbar-sep"></span>
+          <button type="button" data-md="hr" title="Горизонтальная линия">— Линия</button>
+        </div>
+        <textarea id="d-content" class="doc-editor" rows="20">${escapeHtml(doc?.content || '')}</textarea>
+        <div class="hint">Кнопки панели применяют разметку к выделенному тексту. Повторное нажатие на заголовок/список/цитату снимает отметку. Пустая строка разделяет абзацы.</div>
+      </div>
       <div class="error-msg" id="d-error" style="display:none"></div>
       <div class="modal-actions"><button onclick="closeModal()">Отмена</button><button class="btn-primary" id="d-save">Сохранить</button></div>
-    `);
+    `, { wide: true, modalClass: 'doc-modal' });
+    bindDocToolbar();
     document.getElementById('d-save').addEventListener('click', async () => {
       try {
         const body = { title: document.getElementById('d-title').value, content: document.getElementById('d-content').value };
@@ -123,6 +141,93 @@
         const err = document.getElementById('d-error'); err.textContent = e.message; err.style.display = 'block';
       }
     });
+  }
+
+  // ---------- Разметка документа ----------
+  const MD_WRAP = { bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'] };
+  const MD_LINE_PREFIX = { h1: '# ', h2: '## ', h3: '### ', ul: '- ', quote: '> ' };
+  const MD_LINE_RE = /^(#{1,3}\s+|-\s+|\d+\.\s+|>\s?)/;
+
+  function bindDocToolbar() {
+    document.querySelectorAll('#d-toolbar button').forEach(btn => {
+      btn.addEventListener('click', () => applyDocMarkup(document.getElementById('d-content'), btn.dataset.md));
+    });
+  }
+
+  function applyDocMarkup(ta, kind) {
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const wrap = MD_WRAP[kind];
+    if (wrap) {
+      const inner = ta.value.slice(start, end) || 'текст';
+      ta.setRangeText(wrap[0] + inner + wrap[1], start, end, 'preserve');
+      ta.setSelectionRange(start + wrap[0].length, start + wrap[0].length + inner.length);
+      ta.focus();
+      return;
+    }
+    if (kind === 'hr') {
+      const insert = '\n---\n';
+      ta.setRangeText(insert, start, end, 'end');
+      ta.focus();
+      return;
+    }
+    const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+    let lineEnd = ta.value.indexOf('\n', end);
+    if (lineEnd === -1) lineEnd = ta.value.length;
+    const lines = ta.value.slice(lineStart, lineEnd).split('\n');
+    const isOl = kind === 'ol';
+    const prefix = MD_LINE_PREFIX[kind];
+    const allMarked = lines.every(ln => isOl ? /^\d+\.\s/.test(ln) : ln.startsWith(prefix));
+    const out = lines.map((ln, i) => {
+      const clean = ln.replace(MD_LINE_RE, '');
+      if (allMarked) return clean;
+      return isOl ? `${i + 1}. ${clean}` : prefix + clean;
+    }).join('\n');
+    ta.setRangeText(out, lineStart, lineEnd, 'preserve');
+    ta.setSelectionRange(lineStart, lineStart + out.length);
+    ta.focus();
+  }
+
+  function docInline(s) {
+    return s
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+)__/g, '<u>$1</u>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  }
+
+  function renderDocContent(src) {
+    const lines = escapeHtml(src || '').split(/\r?\n/);
+    const out = [];
+    let list = null, quote = false, para = [];
+    const flushPara = () => { if (para.length) { out.push(`<p>${para.join('<br>')}</p>`); para = []; } };
+    const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+    const closeQuote = () => { if (quote) { out.push('</blockquote>'); quote = false; } };
+    const closeAll = () => { flushPara(); closeList(); closeQuote(); };
+    for (const line of lines) {
+      let m;
+      if (!line.trim()) { closeAll(); continue; }
+      if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { closeAll(); out.push(`<h${m[1].length}>${docInline(m[2])}</h${m[1].length}>`); continue; }
+      if (/^(-{3,}|\*{3,})$/.test(line.trim())) { closeAll(); out.push('<hr>'); continue; }
+      if ((m = line.match(/^-\s+(.*)$/))) {
+        flushPara(); closeQuote();
+        if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
+        out.push(`<li>${docInline(m[1])}</li>`); continue;
+      }
+      if ((m = line.match(/^\d+\.\s+(.*)$/))) {
+        flushPara(); closeQuote();
+        if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; }
+        out.push(`<li>${docInline(m[1])}</li>`); continue;
+      }
+      if ((m = line.match(/^&gt;\s?(.*)$/))) {
+        flushPara(); closeList();
+        if (!quote) { out.push('<blockquote>'); quote = true; }
+        out.push(`${docInline(m[1])}<br>`); continue;
+      }
+      closeList(); closeQuote();
+      para.push(docInline(line));
+    }
+    closeAll();
+    return out.join('');
   }
 
   function openCatModal(cat = null) {
@@ -174,7 +279,6 @@
     });
   }
 
-  document.getElementById('log-activity-btn')?.addEventListener('click', () => openActivityModal());
   document.getElementById('add-cat-btn')?.addEventListener('click', () => openCatModal());
 
   await loadCategories();

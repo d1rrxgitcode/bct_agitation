@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('express-async-errors');
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
@@ -48,6 +49,15 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+// Единый обработчик ошибок API (ловит и async-ошибки через express-async-errors)
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  if (err.code === '23505') return res.status(409).json({ error: 'Такое значение уже существует' });
+  if (err.code === '23503') return res.status(409).json({ error: 'Запись связана с другими данными — сначала удалите их' });
+  res.status(500).json({ error: 'Ошибка сервера' });
 });
 
 app.listen(PORT, () => {

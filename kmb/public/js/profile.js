@@ -12,11 +12,11 @@
     return;
   }
 
-  const isOwn = String(user.personnel_id) === String(id);
-  const canFillActivity = canEdit || isOwn;
   let person;
   let ranks = [];
-  let myActivities = [];
+  let actState = { page: 1, pages: 1, items: [], total: 0 };
+  let docPage = 1; // 1 — досье, 2..N — листы служебной активности
+  const ACT_PER_PAGE = 4;
 
   try {
     person = await api(`/personnel/${id}`);
@@ -26,16 +26,108 @@
   }
 
   async function loadExtras() {
+    await loadActivityTypes();
     ranks = await api('/ranks');
+    await loadActivities();
+  }
+
+  async function loadActivities() {
     try {
-      myActivities = await api(`/activities?personnel_id=${id}`);
+      const page = Math.max(1, docPage - 1);
+      const res = await api(`/activities?personnel_id=${id}&page=${page}&limit=${ACT_PER_PAGE}`);
+      actState = { page: res.page, pages: res.pages, items: res.items, total: res.total };
+      if (docPage > 1) docPage = 1 + actState.page; // сервер мог ограничить страницу сверху
     } catch (e) {
-      myActivities = [];
+      actState = { page: 1, pages: 1, items: [], total: 0 };
+      docPage = 1;
     }
+  }
+
+  function rankHistoryHtml() {
+    const history = person.rank_history || [];
+    if (!history.length) return '<div class="hint">Записей нет</div>';
+    return `
+      <table class="dossier-table">
+        ${history.map(h => `
+          <tr>
+            <td class="dossier-date">${fmtDate(h.awarded_at)}</td>
+            <td>${escapeHtml(h.rank_name)}</td>
+          </tr>`).join('')}
+      </table>`;
+  }
+
+  function dossierActHtml(a, canManage) {
+    return `
+      <div class="dossier-act">
+        <div class="dossier-act-head">
+          <span>[${fmtDate(a.activity_date)}] — ${escapeHtml(a.type_name || 'БЕЗ КАТЕГОРИИ').toUpperCase()}</span>
+          ${canManage ? `<span style="display:flex;gap:6px">
+            <button class="btn-sm" type="button" data-edit-activity="${a.id}">Изменить</button>
+            <button class="btn-sm btn-danger" type="button" data-del-activity="${a.id}">Удалить</button>
+          </span>` : ''}
+        </div>
+        <div class="dossier-act-title">${escapeHtml(a.title)}</div>
+        <div class="dossier-act-meta"><b>Проводящий:</b> ${escapeHtml(a.conductor_name || '—')} &nbsp;·&nbsp; <b>Участники:</b> ${(a.participants || []).map(p => escapeHtml(p.callsign)).join(', ') || '—'}</div>
+        ${a.notes ? `<div class="dossier-act-notes">${escapeHtml(a.notes)}</div>` : ''}
+        ${(a.images || []).length ? `
+          <div class="dossier-act-images">
+            ${a.images.map(im => `<img src="${escapeHtml(im.path)}" data-img="${escapeHtml(im.path)}" alt="Фото к записи «${escapeHtml(a.title)}»">`).join('')}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function docPagesTotal() {
+    return 1 + (actState.total ? actState.pages : 0);
+  }
+
+  function dossierPageHtml(formation) {
+    return `
+      <h1>ГАЛАКТИЧЕСКАЯ РЕСПУБЛИКА</h1>
+      <h2>${escapeHtml(person.subordination || 'ВЕЛИКАЯ АРМИЯ РЕСПУБЛИКИ')}</h2>
+      <h3>${escapeHtml(formation).toUpperCase()}</h3>
+      <hr>
+      <div class="row"><b>Идентификационный номер:</b> [${escapeHtml(person.idn)}]</div>
+      <div class="row"><b>Позывной / имя:</b> [${escapeHtml(person.callsign)}]</div>
+      <div class="row"><b>Дата создания / поступления на службу:</b> [${fmtDate(person.service_date)}]</div>
+      <div class="row"><b>Дата зачисления в 91-й разведывательный корпус:</b> [${fmtDate(person.corps_join_date)}]</div>
+      <br>
+      <div class="row"><b>Текущая должность:</b> [${escapeHtml((person.position_name || '—').toUpperCase())}]</div>
+      <div class="row"><b>Текущее звание:</b> [${escapeHtml(person.rank_name || '—')}]</div>
+      <div class="row"><b>Подразделение:</b> [${escapeHtml(person.unit_name || '-')}]</div>
+      <hr>
+      <div class="section-title">СЛУЖЕБНЫЕ ДАННЫЕ</div>
+      <div class="row"><b>Формирование:</b> ${escapeHtml(formation)}</div>
+      <div class="row"><b>Специализации:</b> [${escapeHtml(person.specialization || '—')}]</div>
+      <div class="row"><b>Внутренние награды:</b> [${(person.awards && person.awards.length) ? person.awards.map(a => `"${escapeHtml(a)}"`).join(', ') : '—'}]</div>
+      <hr>
+      <div class="section-title">ИСТОРИЯ ЗВАНИЙ</div>
+      ${rankHistoryHtml()}
+      <hr>
+      <div class="row"><b>Статус военнослужащего:</b> ${escapeHtml(person.status || 'АКТИВЕН')}</div>
+      <div class="row"><b>Принадлежность:</b> ${escapeHtml(person.affiliation || 'ГАЛАКТИЧЕСКАЯ РЕСПУБЛИКА')}</div>
+      <div class="row"><b>Подчинение:</b> ${escapeHtml(person.subordination || 'ВЕЛИКАЯ АРМИЯ РЕСПУБЛИКИ')}</div>
+      <img class="dossier-emblem" src="/img/emblem.png" alt="Эмблема 91-го корпуса">
+      <div class="dossier-page-num">— 1 —</div>
+    `;
+  }
+
+  function activityPageHtml() {
+    const canDeleteAny = canEdit;
+    return `
+      <h2>ЛИЧНОЕ ДЕЛО — ПРОДОЛЖЕНИЕ</h2>
+      <h3>${escapeHtml(person.callsign)} · IDN [${escapeHtml(person.idn)}]</h3>
+      <hr>
+      <div class="section-title">СЛУЖЕБНАЯ АКТИВНОСТЬ · лист ${actState.page} из ${actState.pages}</div>
+      ${actState.items.map(a => dossierActHtml(a, canDeleteAny || String(a.conducted_by) === String(user.id))).join('')
+        || '<div class="hint">Записей на этом листе нет.</div>'}
+      <div class="dossier-page-num">— ${docPage} —</div>
+    `;
   }
 
   function render() {
     const formation = person.formation || FORMATION_NAME;
+    const docPages = docPagesTotal();
+    if (docPage > docPages) docPage = docPages;
     main.innerHTML = `
       <div class="topbar">
         <div>
@@ -43,111 +135,66 @@
           <div class="sub">${escapeHtml(person.callsign)} · IDN ${escapeHtml(person.idn)}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${canFillActivity ? '<button id="log-activity-btn">Записать активность</button>' : ''}
+          <a class="btn-sm" href="/activity.html?personnel_id=${id}">Вся активность корпуса</a>
           ${canEdit ? '<button class="btn-primary" id="edit-btn">Редактировать</button>' : ''}
         </div>
       </div>
-      <div class="dossier-doc">
-        <h1>ГАЛАКТИЧЕСКАЯ РЕСПУБЛИКА</h1>
-        <h2>${escapeHtml(person.subordination || 'ВЕЛИКАЯ АРМИЯ РЕСПУБЛИКИ')}</h2>
-        <h3>${escapeHtml(formation).toUpperCase()}</h3>
-        <hr>
-        <div class="row"><b>Идентификационный номер:</b> [${escapeHtml(person.idn)}]</div>
-        <div class="row"><b>Позывной / имя:</b> [${escapeHtml(person.callsign)}]</div>
-        <div class="row"><b>Дата создания / поступления на службу:</b> [${fmtDate(person.service_date)}]</div>
-        <div class="row"><b>Дата зачисления в 91-й разведывательный корпус:</b> [${fmtDate(person.corps_join_date)}]</div>
-        <br>
-        <div class="row"><b>Текущая должность:</b> [${escapeHtml((person.position_name || '—').toUpperCase())}]</div>
-        <div class="row"><b>Текущее звание:</b> [${escapeHtml(person.rank_name || '—')}]</div>
-        <div class="row"><b>Подразделение:</b> [${escapeHtml(person.unit_name || '-')}]</div>
-        <hr>
-        <div class="section-title">СЛУЖЕБНЫЕ ДАННЫЕ</div>
-        <div class="row"><b>Формирование:</b> ${escapeHtml(formation)}</div>
-        <div class="row"><b>Специализации:</b> [${escapeHtml(person.specialization || '—')}]</div>
-        <div class="row"><b>Внутренние награды:</b> [${(person.awards && person.awards.length) ? person.awards.map(a => `"${escapeHtml(a)}"`).join(', ') : '—'}]</div>
-        <hr>
-        <div class="section-title">ИСТОРИЯ ЗВАНИЙ</div>
-        ${(person.rank_history || []).length
-          ? person.rank_history.map(h => `<div class="history-item">[${escapeHtml(h.rank_name)}] — [${fmtDate(h.awarded_at)}]</div>`).join('')
-          : '<div class="hint">Записей нет</div>'}
-        ${canEdit ? `
-          <div class="rank-history-editor">
-            <div class="hint">Добавьте запись: звание и дата присвоения (как в досье).</div>
-            <div class="rank-history-form">
-              <select id="rh-rank">${ranks.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')}</select>
-              <input type="date" id="rh-date" value="${localToday()}">
-              <label class="inline-check"><input type="checkbox" id="rh-current"> сделать текущим</label>
-              <button class="btn-sm btn-primary" type="button" id="rh-add">Добавить</button>
-            </div>
-            ${(person.rank_history || []).map(h => `
-              <div class="rank-history-row">
-                <span>[${escapeHtml(h.rank_name)}] — [${fmtDate(h.awarded_at)}]</span>
-                <button class="btn-sm btn-danger" type="button" data-del-rh="${h.id}">Удалить</button>
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
-        <hr>
-        <div class="row"><b>Статус военнослужащего:</b> ${escapeHtml(person.status || 'АКТИВЕН')}</div>
-        <div class="row"><b>Принадлежность:</b> ${escapeHtml(person.affiliation || 'ГАЛАКТИЧЕСКАЯ РЕСПУБЛИКА')}</div>
-        <div class="row"><b>Подчинение:</b> ${escapeHtml(person.subordination || 'ВЕЛИКАЯ АРМИЯ РЕСПУБЛИКИ')}</div>
-        <img class="dossier-emblem" src="/img/emblem.png" alt="Эмблема 91-го корпуса">
+      <div class="dossier-pages-nav">
+        <button class="btn-sm" type="button" id="doc-prev" ${docPage <= 1 ? 'disabled' : ''}>← Предыдущий лист</button>
+        <span class="pager-info">Лист ${docPage} из ${docPages}</span>
+        <button class="btn-sm" type="button" id="doc-next" ${docPage >= docPages ? 'disabled' : ''}>Следующий лист →</button>
       </div>
-      <div class="grid grid-4" style="margin-top:18px">
+      <div class="dossier-doc">
+        ${docPage === 1 ? dossierPageHtml(formation) : activityPageHtml()}
+      </div>
+      <div class="grid grid-3" style="margin-top:18px">
         <div class="card"><div class="label" style="color:var(--text-muted);font-size:12.5px">Steam ID</div><div>${escapeHtml(person.steam_id || '—')}</div></div>
         <div class="card"><div class="label" style="color:var(--text-muted);font-size:12.5px">Discord</div><div>${escapeHtml(person.discord || '—')}</div></div>
-        <div class="card"><div class="label" style="color:var(--text-muted);font-size:12.5px">Текущая активность</div><div>${escapeHtml(person.activity || '—')}</div></div>
         <div class="card"><div class="label" style="color:var(--text-muted);font-size:12.5px">Наёмник</div><div>${person.mercenary ? 'Да' : 'Нет'}</div></div>
       </div>
-      ${canFillActivity ? `
-        <div class="card" style="margin-top:16px">
-          <div class="toolbar">
-            <strong style="margin-right:auto">Моя активность</strong>
-          </div>
-          <div class="field" style="max-width:420px">
-            <label>Метка в таблице состава (заполняется самостоятельно)</label>
-            <div style="display:flex;gap:8px">
-              <input id="own-activity" value="${escapeHtml(person.activity || '')}" placeholder="Например: в строю / в отпуске">
-              <button class="btn-primary" type="button" id="save-own-activity">Сохранить</button>
-            </div>
-            <div class="error-msg" id="own-act-error" style="display:none"></div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Дата</th><th>Тип</th><th>Название</th><th>Заметки</th><th></th></tr></thead>
-              <tbody>
-                ${myActivities.map(r => `
-                  <tr>
-                    <td>${fmtDate(r.activity_date)}</td>
-                    <td>${(ACTIVITY_TYPES.find(t => t.id === r.type) || {}).label || r.type}</td>
-                    <td>${escapeHtml(r.title)}</td>
-                    <td style="white-space:normal">${escapeHtml(r.notes || '')}</td>
-                    <td>${(canEdit || String(r.conducted_by) === String(user.id)) ? `<button class="btn-sm btn-danger" data-del-act="${r.id}">Удалить</button>` : ''}</td>
-                  </tr>
-                `).join('') || `<tr><td colspan="5" style="color:var(--text-muted)">Пока нет записей — нажмите «Записать активность»</td></tr>`}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ` : ''}
     `;
 
     document.getElementById('edit-btn')?.addEventListener('click', openEditModal);
-    document.getElementById('log-activity-btn')?.addEventListener('click', () => {
-      openActivityModal({ personnel_id: Number(id), onSaved: refresh });
+    document.getElementById('doc-prev')?.addEventListener('click', async () => {
+      if (docPage <= 1) return;
+      docPage -= 1;
+      await loadActivities();
+      render();
     });
-    document.getElementById('save-own-activity')?.addEventListener('click', async () => {
-      try {
-        await api(`/personnel/${id}/activity`, {
-          method: 'PATCH',
-          body: { activity: document.getElementById('own-activity').value },
-        });
-        await refresh();
-      } catch (e) {
-        const err = document.getElementById('own-act-error');
-        err.textContent = e.message; err.style.display = 'block';
-      }
+    document.getElementById('doc-next')?.addEventListener('click', async () => {
+      if (docPage >= docPagesTotal()) return;
+      docPage += 1;
+      await loadActivities();
+      render();
     });
+    bindActivityDelete(main, refresh);
+    bindActivityEdit(main, (actId) => actState.items.find(x => x.id === actId), refresh);
+  }
+
+  async function refresh() {
+    person = await api(`/personnel/${id}`);
+    await loadExtras();
+    render();
+  }
+
+  function rankHistoryEditorHtml() {
+    return `
+      <div id="rh-list">
+        ${(person.rank_history || []).map(h => `
+          <div class="rank-history-row">
+            <span>${fmtDate(h.awarded_at)} — ${escapeHtml(h.rank_name)}</span>
+            <button class="btn-sm btn-danger" type="button" data-del-rh="${h.id}">Удалить</button>
+          </div>`).join('') || '<div class="hint">Записей нет</div>'}
+      </div>
+      <div class="rank-history-form">
+        <select id="rh-rank">${ranks.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')}</select>
+        <input type="date" id="rh-date" value="${localToday()}">
+        <label class="inline-check"><input type="checkbox" id="rh-current"> сделать текущим</label>
+        <button class="btn-sm btn-primary" type="button" id="rh-add">Добавить</button>
+      </div>`;
+  }
+
+  function bindRankHistoryEditor() {
     document.getElementById('rh-add')?.addEventListener('click', async () => {
       await api(`/personnel/${id}/rank-history`, {
         method: 'POST',
@@ -157,24 +204,33 @@
           set_current: document.getElementById('rh-current').checked,
         },
       });
-      await refresh();
+      await syncRankHistory();
     });
-    main.querySelectorAll('[data-del-rh]').forEach(btn => btn.addEventListener('click', async () => {
+    bindRhDelete();
+  }
+
+  function bindRhDelete() {
+    document.querySelectorAll('[data-del-rh]').forEach(btn => btn.addEventListener('click', async () => {
       if (!confirm('Удалить запись из истории званий?')) return;
       await api(`/personnel/${id}/rank-history/${btn.dataset.delRh}`, { method: 'DELETE' });
-      await refresh();
-    }));
-    main.querySelectorAll('[data-del-act]').forEach(btn => btn.addEventListener('click', async () => {
-      if (!confirm('Удалить запись активности?')) return;
-      await api(`/activities/${btn.dataset.delAct}`, { method: 'DELETE' });
-      await refresh();
+      await syncRankHistory();
     }));
   }
 
-  async function refresh() {
+  // Подтягивает историю званий в открытую модалку редакции, не теряя остальные поля
+  async function syncRankHistory() {
     person = await api(`/personnel/${id}`);
-    await loadExtras();
-    render();
+    const list = document.getElementById('rh-list');
+    if (list) {
+      list.innerHTML = (person.rank_history || []).map(h => `
+        <div class="rank-history-row">
+          <span>${fmtDate(h.awarded_at)} — ${escapeHtml(h.rank_name)}</span>
+          <button class="btn-sm btn-danger" type="button" data-del-rh="${h.id}">Удалить</button>
+        </div>`).join('') || '<div class="hint">Записей нет</div>';
+      bindRhDelete();
+    }
+    const rankSel = document.getElementById('e-rank');
+    if (rankSel) rankSel.value = person.rank_id ? String(person.rank_id) : '';
   }
 
   async function openEditModal() {
@@ -199,9 +255,15 @@
       <div class="field"><label>Специализации</label><input id="e-specialization" value="${escapeHtml(person.specialization || '')}" placeholder="CH, SS | KD, * | D"></div>
       <div class="field"><label>Внутренние награды (через запятую)</label><input id="e-awards" value="${escapeHtml((person.awards||[]).join(', '))}"></div>
       <div class="field"><label>Примечания</label><textarea id="e-notes" rows="3">${escapeHtml(person.notes || '')}</textarea></div>
+      <div class="modal-section">
+        <div class="section-title">История званий</div>
+        <div class="hint" style="margin:0 0 8px">Записи отображаются в досье; здесь они добавляются и удаляются.</div>
+        ${rankHistoryEditorHtml()}
+      </div>
       <div class="error-msg" id="e-error" style="display:none"></div>
       <div class="modal-actions"><button onclick="closeModal()">Отмена</button><button class="btn-primary" id="e-save">Сохранить</button></div>
-    `);
+    `, { wide: true });
+    bindRankHistoryEditor();
     document.getElementById('e-save').addEventListener('click', async () => {
       try {
         const body = {

@@ -12,7 +12,6 @@
     <div class="topbar">
       <div><h1>Админ-панель</h1><div class="sub">Пользователи и привилегии доступа (модерация). Военная должность задаётся в личном деле.</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button id="log-activity-btn">Записать активность</button>
         <button class="btn-primary" id="add-user-btn">+ Создать пользователя</button>
       </div>
     </div>
@@ -116,8 +115,6 @@
     await api(`/admin/users/${id}`, { method: 'DELETE' });
     loadUsers();
   };
-
-  document.getElementById('log-activity-btn')?.addEventListener('click', () => openActivityModal());
 
   loadUsers();
 })();

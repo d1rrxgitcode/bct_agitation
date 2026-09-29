@@ -12,7 +12,6 @@
         <div class="sub">${escapeHtml(FORMATION_NAME)}</div>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap">
-        <button id="log-activity-btn">Записать активность</button>
         ${canEdit ? `
           <button id="manage-lists-btn">Звания / должности / подразделения</button>
           <button class="btn-primary" id="add-person-btn">+ Добавить бойца</button>
@@ -187,10 +186,6 @@
     loadRows();
   };
 
-  document.getElementById('log-activity-btn')?.addEventListener('click', () => {
-    openActivityModal({ onSaved: loadRows });
-  });
-
   // ---------- Управление списками (звания / должности / подразделения) ----------
   document.getElementById('manage-lists-btn')?.addEventListener('click', () => openListsModal());
 
@@ -198,7 +193,7 @@
     return `
       <h2>Справочники</h2>
       <p class="hint" style="margin-top:0">Должность — военная. Подразделения — внутренние структуры корпуса (91-й корпус — формирование, его сюда не добавляйте). Привилегии модерации задаются в админ-панели.</p>
-      <div class="grid grid-3">
+      <div class="grid grid-4">
         <div>
           <div class="section-title" style="font-weight:600;margin-bottom:8px">Звания</div>
           <div id="ranks-list"></div>
@@ -221,6 +216,14 @@
           <div style="display:flex;gap:6px;margin-top:8px">
             <input id="new-unit" placeholder="Новое подразделение">
             <button class="btn-sm" id="add-unit">+</button>
+          </div>
+        </div>
+        <div>
+          <div class="section-title" style="font-weight:600;margin-bottom:8px">Категории деятельности</div>
+          <div id="types-list"></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <input id="new-type" placeholder="Новая категория">
+            <button class="btn-sm" id="add-type">+</button>
           </div>
         </div>
       </div>
@@ -252,9 +255,11 @@
 
   async function refreshLists() {
     [ranks, positions, units] = await Promise.all([api('/ranks'), api('/positions'), api('/units')]);
+    const types = await loadActivityTypes(true);
     renderEditableList('ranks-list', ranks, 'ranks');
     renderEditableList('positions-list', positions, 'positions');
     renderEditableList('units-list', units, 'units');
+    renderEditableList('types-list', types, 'activity-types');
     const unitSel = document.getElementById('f-unit');
     const cur = unitSel.value;
     unitSel.innerHTML = '<option value="">Все подразделения</option>';
@@ -273,6 +278,7 @@
     renderEditableList('ranks-list', ranks, 'ranks');
     renderEditableList('positions-list', positions, 'positions');
     renderEditableList('units-list', units, 'units');
+    renderEditableList('types-list', await loadActivityTypes(), 'activity-types');
     document.getElementById('add-rank').addEventListener('click', async () => {
       const v = document.getElementById('new-rank').value.trim();
       if (!v) return;
@@ -292,6 +298,14 @@
       if (!v) return;
       await api('/units', { method: 'POST', body: { name: v, sort_order: units.length + 1 } });
       document.getElementById('new-unit').value = '';
+      await refreshLists();
+    });
+    document.getElementById('add-type').addEventListener('click', async () => {
+      const v = document.getElementById('new-type').value.trim();
+      if (!v) return;
+      const types = await loadActivityTypes();
+      await api('/activity-types', { method: 'POST', body: { name: v, sort_order: types.length + 1 } });
+      document.getElementById('new-type').value = '';
       await refreshLists();
     });
   }
